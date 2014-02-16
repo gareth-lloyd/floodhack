@@ -1,0 +1,7 @@
+django
+datasift
+south
+psycopg2
+https://github.com/gareth-lloyd/postcode_latlng/archive/master.zip
+pyshp
+tweepy
