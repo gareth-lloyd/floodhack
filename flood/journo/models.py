@@ -20,6 +20,9 @@ class Status(models.Model):
 
     objects = models.GeoManager()
 
+    def images(self):
+        return self.image_set.all()
+
 class Image(models.Model):
     status = models.ForeignKey(Status)
 

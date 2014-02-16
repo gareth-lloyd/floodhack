@@ -1,4 +1,5 @@
-import requests, datasift, json, tweepy
+import requests, json, tweepy
+from datasift import client
 from django.contrib.gis.geos import Point
 from django.conf import settings
 
@@ -11,6 +12,47 @@ UN = 'godawful'
 AK = 'a08da47984e549320122e69e29d3abe3'
 DS = 'https://api.datasift.com/v1/stream'
 BOT_NAME = "@floodnewsbot"
+
+CSDL = """
+interaction.type contains "twitter"
+and twitter.user.geo_enabled == 1
+and interaction.sample > 0.005
+and interaction.geo geo_polygon "49.965360000000004,-5.58105:50.76426000000001,1.2304700000000002:52.82932,2.02148:55.973800000000004,-1.9335900000000001:54.826010000000004,-5.53711"
+"""
+
+def _ds():
+    ds = client.Client(UN, AK)
+
+    @ds.on_delete
+    def on_delete(interaction):
+        pass
+
+    @ds.on_open
+    def on_open():
+        print 'Streaming ready, can start subscribing'
+        stream = ds.compile(CSDL)['hash']
+
+        @ds.subscribe(stream)
+        def subscribe_to_hash(msg):
+            try:
+                print msg['interaction'].get('content')
+                _consume(msg)
+            except Exception, e:
+                print e
+
+
+    @ds.on_closed
+    def on_close(wasClean, code, reason):
+        print 'Streaming connection closed'
+
+    @ds.on_ds_message
+    def on_ds_message(msg):
+        print 'DS Message %s' % msg
+
+    #must start stream subscriber
+    ds.start_stream_subscriber()
+    return client
+
 
 def _tw():
     auth = tweepy.OAuthHandler(settings.TW_KEY, settings.TW_SECRET)
@@ -30,9 +72,6 @@ def request(status):
         return
 
     tw.update_status(_message(at_name), status.tweet_id)
-
-def _ds():
-    return datasift.User(UN, AK)
 
 def _from_id():
     Status.objects.all().order_by('-created_date')[0].ds_id
@@ -67,10 +106,9 @@ def _attrs(chunk):
 def is_in_flood_area(location):
     if not location:
         return False
+
     return Area.objects.filter(shape__contains=location).exists()
 
-
-seen = set()
 
 def get_datasift_latest(high_id):
     response = requests.get(
@@ -78,29 +116,28 @@ def get_datasift_latest(high_id):
     stream = json.loads(response.content)['stream']
 
     print "got {n} tweets".format(n=len(stream))
-    for chunk in stream:
-        if 'author' not in chunk['interaction']:
-            continue
-        attrs = _attrs(chunk)
-        if not attrs['ds_id'] in seen:
-            seen.add(attrs['ds_id'])
-            print 'new one'
+    map(_consume, stream)
 
-        if Status.objects.filter(tweet_id=attrs['tweet_id']).exists():
-            print 'seen before'
 
-        if is_in_flood_area(attrs['location']):
-            print 'creating', attrs['content']
-            status = Status.objects.create(**attrs)
-            if not status.reply_to_bot:
-                print 'requesting from', status.username
-                request(status)
+def _consume(chunk):
+    if 'author' not in chunk['interaction']:
+        return
+    attrs = _attrs(chunk)
+    if Status.objects.filter(tweet_id=attrs['tweet_id']).exists():
+        print 'seen before'
+
+    if is_in_flood_area(attrs['location']):
+        print 'creating', attrs['content']
+        status = Status.objects.create(**attrs)
+        if not status.reply_to_bot:
+            print 'requesting from', status.username
+            request(status)
 
 
 def get_latest_mentions():
     tw = _tw()
     for status in tw.mentions_timeline():
-        if "@godawful" in status.text:
+        if "@godawful" in status.text.lower():
             continue
         elif Status.objects.filter(tweet_id=str(status.id)).exists():
             continue
