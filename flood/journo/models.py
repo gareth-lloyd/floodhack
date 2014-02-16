@@ -2,8 +2,8 @@ from django.contrib.gis.db import models
 
 
 class Status(models.Model):
-    ds_id = models.CharField(max_length=128, unique=True)
-    tweet_id = models.CharField(max_length=128)
+    ds_id = models.CharField(max_length=128, unique=True, null=True, blank=True)
+    tweet_id = models.CharField(max_length=128, unique=True)
 
     uid = models.CharField(max_length=128)
     # e.g. @godawful
